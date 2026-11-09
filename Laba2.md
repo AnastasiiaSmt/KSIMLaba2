@@ -11,7 +11,8 @@
 
 ### Внесені зміни у вихідну логіку моделі, за варіантом:
 
-**Частина 1** Додати у моделі вплив харчування (умовний регулюємий параметр, наприклад, "якість харчування") на можливість зростання м'язової маси.  
+### Частина 1
+Додати у моделі вплив харчування (умовний регулюємий параметр, наприклад, "якість харчування") на можливість зростання м'язової маси.  
 Для початку додаємо новий керуючий елемент до інтерфейсу. Повзінок nutrition-quality відображатеме значення параметру якості харчування. Якість харчування буде мати 5 можливих станів:
 <table>
 <thead>
@@ -72,7 +73,8 @@ if nutrition-quality = 1 [
   ]
 </pre>
 
-**Частина 2 ** Додати регулюємі користувачем параметри, що визначають вірогідність та міру тимчасового відхилення від вказаних початкових значень інтенсивності тренувань, кількості годин сну та днів між тренуваннями.
+### Частина 2
+Додати регулюємі користувачем параметри, що визначають вірогідність та міру тимчасового відхилення від вказаних початкових значень інтенсивності тренувань, кількості годин сну та днів між тренуваннями.
 
 Додаємо 6 нових показників та елементів керування до інтерфейсу
 <table>
@@ -88,58 +90,104 @@ if nutrition-quality = 1 [
 <tr><td>workout-deviation-range</td><td>Максимальна величина відхилення інтервалу між тренуваннями</td></tr>
 </tbody>
 </table>
-
+Для збереження фактичних значень параметрів до блоку globals додано чотири змінні. Вони використовуються для розрахунку тимчасових відхилень без зміни початкових налаштувань користувача, а також для визначення часу наступного тренування.
 <pre>
-;; set speed-limit 1
-set speed-limit get-random-float 1.1 0.9
+current-intensity
+current-sleep
+current-workout-interval
+next-workout-tick
 </pre>
-Використовується кольорова диференціація машин залежно від їхньої швидкісного ліміту:
+Внесені зміни до процедури setup
 <pre>
-  ;; set label speed-limit
-  if(speed-limit > 1.2) [
-      set color green
-  ]
-   if(speed-limit > 1.5) [
-     set color red
-  ]
-
-  ;; ask sample-car [ set color red ]
+set current-intensity intensity
+set current-sleep hours-of-sleep
+set current-workout-interval max (list 1 days-between-workouts)
+set next-workout-tick 0
 </pre>
-Сині найповільніші, зелені швидше, червоні найшвидші.  
-Забарвлення обраної для відстеження машини скасовано.
+Реалізація відхилень інтенсивності тренувань.
 
-**Зміна логіки гальмування та набору швидкості** залежно від наявності перешкоди перед машиною:
+Додамо процедуру update-intensity, яка перед кожним тренуванням перевіряє ймовірність виникнення відхилення. Якщо відхилення відбувається, фактична інтенсивність змінюється на випадкову величину в межах установленого діапазону. Отримане значення обмежується інтервалом від 0 до 100%.
 <pre>
-  let car-ahead-1 one-of turtles-on patch-ahead 1
-    let car-ahead-2 one-of turtles-on patch-ahead 2
-    ifelse car-ahead-1 = nobody and car-ahead-2 = nobody
-      [ speed-up-car ] ;; otherwise, speed up
-      [ slow-down-car car-ahead-1 car-ahead-2 ]
-    ;; don't slow down below speed minimum or speed up beyond speed limit
-    if speed < speed-min [ set speed speed-min ]
-    if speed > speed-limit [ set speed speed-limit ]
-    fd speed
-</pre>
-Для цього також були внесені зміни до процедури slow-down-car, яка спрацьовує при гальмуванні:
-<pre>
-to slow-down-car [ car-ahead-1 car-ahead-2 ] ;; turtle procedure
-  if (car-ahead-1 != nobody) 
-  [
-      let speed-car-ahead-1 [ speed ] of car-ahead-1
-      ;; slow down so you are driving more slowly than the car ahead of you
-      set speed speed-car-ahead-1 - deceleration
-      stop
+to update-intensity
+  set current-intensity intensity
+  if random-float 100 < intensity-deviation-chance [
+    let deviation (random-float (2 * intensity-deviation-range)) - intensity-deviation-range
+    set current-intensity intensity + deviation
   ]
-  ]  
-  if (car-ahead-2 != nobody) [
-    let speed-car-ahead-2 [ speed ] of car-ahead-2
-    let speed-difference-ahead-2 abs speed - speed-car-ahead-2
-    set speed speed - speed-difference-ahead-2 / 2
-  ]
+  set current-intensity max (list 0 (min (list 100 current-intensity)))
 end
 </pre>
+Зміна у процедурі lift-weights
+<pre>
+current-intensity / 100 * current-intensity / 100
+</pre>
+Реалізація відхилень тривалості сну.
+
+Додамо процедуру update-sleep, яка на кожному такті моделювання визначає фактичну тривалість сну. Залежно від заданої ймовірності вона може випадково збільшуватися або зменшуватися в межах установленого діапазону. Розраховане значення використовується для визначення впливу сну на гормональне середовище.
+<pre>
+to update-sleep
+  set current-sleep hours-of-sleep
+  if random-float 100 < sleep-deviation-chance [
+    let deviation (random-float (2 * sleep-deviation-range)) - sleep-deviation-range
+    set current-sleep hours-of-sleep + deviation
+  ]
+  set current-sleep max (list 0 (min (list 24 current-sleep)))
+end
+</pre>
+Зміна у процедурі sleep.
+<pre>
+ask patches [
+    set catabolic-hormone catabolic-hormone - 0.5 * (log catabolic-hormone 10) * current-sleep
+    set anabolic-hormone anabolic-hormone - 0.48 * (log anabolic-hormone 10) * current-sleep
+  ]
+</pre>
+Реалізація відхилень інтервалів між тренуваннями.
+
+Для відображення нерегулярності тренувань додано процедуру update-workout-interval. Після кожного тренування вона визначає інтервал до наступного, враховуючи ймовірність і максимальну величину випадкового відхилення. Мінімальна тривалість інтервалу обмежена одним днем. Додаємо процедуру update-workout-interval.
+<pre>
+to update-workout-interval
+  set current-workout-interval days-between-workouts
+  if random-float 100 < workout-deviation-chance [
+    let deviation (random (2 * workout-deviation-range + 1)) - workout-deviation-range
+    set current-workout-interval days-between-workouts + deviation
+  ]
+  set current-workout-interval max (list 1 current-workout-interval)
+end
+</pre>
+Змінено механізм планування тренувань. Трохи змінюємо процедуру go. Це дозволить змінювати інтервали між окремими тренуваннями.
+<pre>
+to go
+  perform-daily-activity
+  update-sleep
+   if lift? and ticks >= next-workout-tick [
+    update-intensity
+    lift-weights
+    update-workout-interval
+    set next-workout-tick ticks + current-workout-interval
+  ]
+  sleep
+  regulate-hormones
+  develop-muscle
+  set muscle-mass sum [fiber-size] of muscle-fibers
+  tick
+end
+</pre>
+Після цього додамо кілька моніторів для відстеження поточних станів.
+- current-intensity Поточна інтенсивність
+- current-sleep Поточна кількість сну
+- current-workout-interval Поточний інтервал між тренуваннями
+- next-workout-tick Кількість тактів, що залишилося до наступного тренування
+
+
 
 <br>
+
+
+
+
+
+
+
 
 ### Внесені зміни у вихідну логіку моделі, на власний розсуд:
 
